@@ -1,37 +1,53 @@
 package ru.astondevs.dao;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.astondevs.dto.UserDto;
-import ru.astondevs.util.HibernateUtil;
+import ru.astondevs.entity.UserEntity;
+import ru.astondevs.mapper.UserMapper;
+import ru.astondevs.util.HibernateProvider;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Properties;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.when;
+
 @Testcontainers
+@ExtendWith(MockitoExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class UserDaoTest {
+class UserDaoTest {
+
+    HibernateProvider hibernateProvider;
+
+    @Mock
+    UserMapper userMapperMock;
 
     @Container
-    private final PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15")
-            .withDatabaseName("test_db")
-            .withUsername("test_user")
-            .withPassword("test_pass");
+    private final PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:17")
+        .withDatabaseName("test_db")
+        .withUsername("test_user")
+        .withPassword("test_pass");
 
-    private UserDao userDao;
+    UserDao underTest;
 
     @BeforeAll
-    void setUp() throws IOException {
+    void setUp() {
         container.start();
 
-        // Перезаписываем hibernate.properties
         Properties properties = new Properties();
         properties.setProperty("hibernate.connection.driver_class", "org.postgresql.Driver");
         properties.setProperty("hibernate.connection.url", container.getJdbcUrl());
@@ -41,33 +57,31 @@ public class UserDaoTest {
         properties.setProperty("hibernate.hbm2ddl.auto", "create-drop"); // Для тестов: создаёт и удаляет таблицы
         properties.setProperty("hibernate.show_sql", "true");
 
-        try (FileOutputStream out = new FileOutputStream("src/test/resources/hibernate.properties")) {
-            properties.store(out, null);
-        }
+        hibernateProvider = new HibernateProvider(properties);
+    }
 
-        userDao = new UserDao();
+    @BeforeEach
+    void init() {
+        underTest = new UserDao(hibernateProvider.getSession(), userMapperMock);
     }
 
     @AfterAll
     void tearDown() {
-        HibernateUtil.shutdown();
         container.stop();
     }
 
     @Test
-    public void create() {
+    void create() {
         UserDto userDto = new UserDto();
-        userDto.setName("test_user");
-        userDto.setEmail("test@test.com");
-        userDto.setAge(32);
-        userDto.setCreatedAt(LocalDateTime.now());
+        UserEntity userEntity = new UserEntity("test_user", "test@test.com", 32);
+        when(userMapperMock.toEntity(userDto)).thenReturn(userEntity);
 
-        userDao.create(userDto);
+        underTest.create(userDto);
     }
 
     @Test
     public void read() {
-        UserDto foundUser = userDao.read(1);
+        UserDto foundUser = underTest.read(1);
         assertNotNull(foundUser);
         assertEquals("test_user", foundUser.getName());
         assertEquals("test@test.com", foundUser.getEmail());
@@ -76,16 +90,16 @@ public class UserDaoTest {
 
     @Test
     public void update() {
-        UserDto userDto = userDao.read(1);
+        UserDto userDto = underTest.read(1);
         assertNotNull(userDto);
 
         userDto.setName("test_user2");
         userDto.setEmail("test2@test.com");
         userDto.setAge(48);
 
-        userDao.update(userDto);
+        underTest.update(userDto);
 
-        UserDto updatedUser = userDao.read(1);
+        UserDto updatedUser = underTest.read(1);
         assertNotNull(updatedUser);
         assertEquals("test_user2", updatedUser.getName());
         assertEquals("test2@test.com", updatedUser.getEmail());
@@ -99,16 +113,16 @@ public class UserDaoTest {
         newUser.setEmail("test3@test.com");
         newUser.setAge(25);
         newUser.setCreatedAt(LocalDateTime.now());
-        userDao.create(newUser);
+        underTest.create(newUser);
 
-        List<UserDto> users = userDao.getAll();
+        List<UserDto> users = underTest.getAll();
         assertFalse(users.isEmpty());
         assertEquals(2, users.size());
     }
 
     @Test
     public void delete() {
-        userDao.delete(1);
-        assertNull(userDao.read(1));
+        underTest.delete(1);
+        assertNull(underTest.read(1));
     }
 }
